@@ -1,0 +1,34 @@
+name: ساخت APK اندروید
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ساخت نسخهٔ قابل نصب
+    runs-on: ubuntu-latest
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v4
+      - name: آماده‌سازی جاوا
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: آماده‌سازی Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: ساخت APK
+        run: gradle :app:assembleDebug --no-daemon
+      - name: بارگذاری APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: YadAvar-debug-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
