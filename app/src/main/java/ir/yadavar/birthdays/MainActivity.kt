@@ -7,15 +7,16 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -56,8 +57,12 @@ fun BirthdayApp(database: AppDatabase) {
     val people by database.birthdayDao().observeAll().collectAsStateWithLifecycle(initialValue = emptyList())
     val scope = rememberCoroutineScope()
     var addOpen by remember { mutableStateOf(false) }
+    var editingBirthday by remember { mutableStateOf<Birthday?>(null) }
+    var selectedMonth by remember { mutableStateOf<Int?>(null) }
     val today = remember { JalaliDate.fromGregorian(Calendar.getInstance()) }
+    val filteredPeople = remember(people, selectedMonth) { selectedMonth?.let { month -> people.filter { it.month == month } } ?: people }
     val scheme = lightColorScheme(primary = Rose, secondary = Color(0xFFB85D87), background = Cream, surface = Color.White, onBackground = Ink)
+
     CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides LayoutDirection.Rtl) {
         MaterialTheme(colorScheme = scheme, typography = Typography(bodyLarge = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.SansSerif), titleLarge = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.SansSerif))) {
             Scaffold(containerColor = Cream, floatingActionButton = {
@@ -65,17 +70,39 @@ fun BirthdayApp(database: AppDatabase) {
             }) { padding ->
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), contentPadding = PaddingValues(top = 24.dp, bottom = 100.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item { WelcomeHeader(today, people.size) }
-                    item { Text("فهرست تولدها", style = MaterialTheme.typography.titleLarge, color = Ink, modifier = Modifier.padding(top = 12.dp, bottom = 2.dp)) }
-                    if (people.isEmpty()) item { EmptyState() }
-                    items(people, key = { it.id }) { person -> BirthdayCard(person, onDelete = { scope.launch { database.birthdayDao().delete(person) } }) }
+                    item {
+                        Text("تفکیک بر اساس ماه", style = MaterialTheme.typography.titleLarge, color = Ink, modifier = Modifier.padding(top = 12.dp))
+                        MonthFilter(selectedMonth = selectedMonth, onSelect = { selectedMonth = it })
+                    }
+                    item {
+                        val title = selectedMonth?.let { "تولدهای ${persianMonths[it - 1]}" } ?: "همهٔ تولدها"
+                        Text(title, style = MaterialTheme.typography.titleLarge, color = Ink, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
+                    }
+                    if (filteredPeople.isEmpty()) item { EmptyState(selectedMonth) }
+                    items(filteredPeople, key = { it.id }) { person ->
+                        BirthdayCard(person = person, onEdit = { editingBirthday = person }, onDelete = { scope.launch { database.birthdayDao().delete(person) } })
+                    }
                 }
             }
-            if (addOpen) AddBirthdayDialog(onDismiss = { addOpen = false }, onSave = { person -> scope.launch { database.birthdayDao().insert(person); addOpen = false } })
+            if (addOpen || editingBirthday != null) {
+                BirthdayFormDialog(
+                    birthday = editingBirthday,
+                    onDismiss = { addOpen = false; editingBirthday = null },
+                    onSave = { birthday ->
+                        scope.launch {
+                            if (editingBirthday == null) database.birthdayDao().insert(birthday) else database.birthdayDao().update(birthday)
+                            addOpen = false
+                            editingBirthday = null
+                        }
+                    }
+                )
+            }
         }
     }
 }
 
-@Composable private fun WelcomeHeader(today: JalaliDate, count: Int) {
+@Composable
+private fun WelcomeHeader(today: JalaliDate, count: Int) {
     Surface(shape = RoundedCornerShape(28.dp), color = Rose, modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.padding(22.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(shape = RoundedCornerShape(18.dp), color = Color.White.copy(alpha = .18f)) { Icon(Icons.Default.Cake, null, tint = Color.White, modifier = Modifier.padding(14.dp).size(30.dp)) }
@@ -88,17 +115,30 @@ fun BirthdayApp(database: AppDatabase) {
     }
 }
 
-@Composable private fun EmptyState() {
+@Composable
+private fun MonthFilter(selectedMonth: Int?, onSelect: (Int?) -> Unit) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
+        item { FilterChip(selected = selectedMonth == null, onClick = { onSelect(null) }, label = { Text("همه") }) }
+        items(persianMonths.size) { index ->
+            val month = index + 1
+            FilterChip(selected = selectedMonth == month, onClick = { onSelect(month) }, label = { Text(persianMonths[index]) })
+        }
+    }
+}
+
+@Composable
+private fun EmptyState(selectedMonth: Int?) {
     Surface(shape = RoundedCornerShape(24.dp), color = Color.White, modifier = Modifier.fillMaxWidth()) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 38.dp, horizontal = 20.dp)) {
             Icon(Icons.Default.Cake, null, tint = Color(0xFFE1A0BC), modifier = Modifier.size(44.dp))
-            Text("هنوز تولدی ثبت نشده", style = MaterialTheme.typography.titleMedium, color = Ink, modifier = Modifier.padding(top = 12.dp))
+            Text(if (selectedMonth == null) "هنوز تولدی ثبت نشده" else "برای ${persianMonths[selectedMonth - 1]} تولدی ثبت نشده", style = MaterialTheme.typography.titleMedium, color = Ink, modifier = Modifier.padding(top = 12.dp))
             Text("با دکمهٔ «ثبت تولد» شروع کنید.", color = Color.Gray, modifier = Modifier.padding(top = 5.dp))
         }
     }
 }
 
-@Composable private fun BirthdayCard(person: Birthday, onDelete: () -> Unit) {
+@Composable
+private fun BirthdayCard(person: Birthday, onEdit: () -> Unit, onDelete: () -> Unit) {
     Surface(shape = RoundedCornerShape(20.dp), color = Color.White, shadowElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(16.dp)) {
             Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFFFFE9F1)) { Icon(Icons.Default.Person, null, tint = Rose, modifier = Modifier.padding(11.dp).size(24.dp)) }
@@ -107,31 +147,43 @@ fun BirthdayApp(database: AppDatabase) {
                 Text(person.name, style = MaterialTheme.typography.titleMedium, color = Ink)
                 Text("${person.day} ${persianMonths[person.month - 1]}${person.year?.let { " $it" } ?: ""}", color = Color(0xFF7D6874), modifier = Modifier.padding(top = 3.dp))
             }
+            IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, "ویرایش", tint = Rose) }
             IconButton(onClick = onDelete) { Icon(Icons.Default.DeleteOutline, "حذف", tint = Color(0xFFB54B58)) }
         }
     }
 }
 
-@Composable private fun AddBirthdayDialog(onDismiss: () -> Unit, onSave: (Birthday) -> Unit) {
-    var name by remember { mutableStateOf("") }
-    var dayText by remember { mutableStateOf("") }
-    var yearText by remember { mutableStateOf("") }
-    var month by remember { mutableIntStateOf(1) }
+@Composable
+private fun BirthdayFormDialog(birthday: Birthday?, onDismiss: () -> Unit, onSave: (Birthday) -> Unit) {
+    var name by remember(birthday?.id) { mutableStateOf(birthday?.name.orEmpty()) }
+    var dayText by remember(birthday?.id) { mutableStateOf(birthday?.day?.toString().orEmpty()) }
+    var yearText by remember(birthday?.id) { mutableStateOf(birthday?.year?.toString().orEmpty()) }
+    var month by remember(birthday?.id) { mutableIntStateOf(birthday?.month ?: 1) }
     var expanded by remember { mutableStateOf(false) }
     val day = dayText.toIntOrNull()
     val valid = name.isNotBlank() && day != null && day in 1..if (month <= 6) 31 else 30
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("ثبت تولد جدید", color = Ink) }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("نام شخص") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = dayText, onValueChange = { dayText = it.filter(Char::isDigit).take(2) }, label = { Text("روز") }, singleLine = true, modifier = Modifier.weight(.42f))
-                Box(Modifier.weight(.58f)) {
-                    OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(5.dp)) { Text(persianMonths[month - 1], modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }
-                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) { persianMonths.forEachIndexed { index, label -> DropdownMenuItem(text = { Text(label) }, onClick = { month = index + 1; expanded = false }) } }
+    val isEditing = birthday != null
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (isEditing) "ویرایش تولد" else "ثبت تولد جدید", color = Ink) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("نام شخص") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = dayText, onValueChange = { dayText = it.filter(Char::isDigit).take(2) }, label = { Text("روز") }, singleLine = true, modifier = Modifier.weight(.42f))
+                    Box(Modifier.weight(.58f)) {
+                        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(5.dp)) { Text(persianMonths[month - 1], modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }
+                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) { persianMonths.forEachIndexed { index, label -> DropdownMenuItem(text = { Text(label) }, onClick = { month = index + 1; expanded = false }) } }
+                    }
                 }
+                OutlinedTextField(value = yearText, onValueChange = { yearText = it.filter(Char::isDigit).take(4) }, label = { Text("سال تولد (اختیاری)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Text("یادآوری یک روز قبل، حدود ساعت ۹ صبح ارسال می‌شود.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             }
-            OutlinedTextField(value = yearText, onValueChange = { yearText = it.filter(Char::isDigit).take(4) }, label = { Text("سال تولد (اختیاری)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            Text("یادآوری یک روز قبل، حدود ساعت ۹ صبح ارسال می‌شود.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-        }
-    }, confirmButton = { TextButton(enabled = valid, onClick = { onSave(Birthday(name = name.trim(), day = day!!, month = month, year = yearText.toIntOrNull())) }) { Text("ذخیره") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("انصراف") } })
+        },
+        confirmButton = {
+            TextButton(enabled = valid, onClick = { onSave(Birthday(id = birthday?.id ?: 0, name = name.trim(), day = day!!, month = month, year = yearText.toIntOrNull())) }) { Text(if (isEditing) "ذخیرهٔ تغییرات" else "ذخیره") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("انصراف") } }
+    )
 }
