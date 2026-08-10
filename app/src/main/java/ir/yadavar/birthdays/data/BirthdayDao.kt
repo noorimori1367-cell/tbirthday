@@ -18,6 +18,9 @@ interface BirthdayDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(birthday: Birthday)
 
+    @androidx.room.Update
+    suspend fun update(birthday: Birthday)
+
     @Delete
     suspend fun delete(birthday: Birthday)
 }
